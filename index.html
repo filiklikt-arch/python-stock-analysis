@@ -3,111 +3,302 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Dow Jones Live</title>
+<title>Market Live</title>
 <style>
-  :root { --bg:#0e1116; --card:#171b22; --text:#e8eaed; --muted:#8b949e; --up:#2ecc71; --down:#ff5c5c; }
+  :root { --bg:#0e1116; --card:#171b22; --text:#e8eaed; --muted:#8b949e; --line:rgba(128,128,128,.25);
+          --up:#2ecc71; --down:#ff5c5c; --accent:#4c8dff; }
   @media (prefers-color-scheme: light) {
-    :root { --bg:#f4f5f7; --card:#fff; --text:#16191d; --muted:#667085; --up:#0a9d4a; --down:#d92d2d; }
+    :root { --bg:#f4f5f7; --card:#fff; --text:#16191d; --muted:#667085; --up:#0a9d4a; --down:#d92d2d; --accent:#2563eb; }
   }
   * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--text); font-family:system-ui,sans-serif; padding:24px 16px; }
-  .wrap { max-width:820px; margin:0 auto; }
-  .card { background:var(--card); border-radius:14px; padding:24px; }
-  h1 { font-size:16px; font-weight:600; color:var(--muted); margin:0 0 8px; }
-  .price { font-size:56px; font-weight:700; font-variant-numeric:tabular-nums; }
-  .change { font-size:20px; font-variant-numeric:tabular-nums; margin-top:4px; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:system-ui,sans-serif; padding:20px 16px; }
+  .layout { max-width:1240px; margin:0 auto; display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); gap:16px; align-items:start; }
+  @media (max-width:900px) { .layout { grid-template-columns:1fr; } }
+  .card { background:var(--card); border-radius:14px; padding:20px; }
+  .card + .card { margin-top:16px; }
+  h2 { font-size:13px; font-weight:600; color:var(--muted); margin:0 0 10px; text-transform:uppercase; letter-spacing:.04em; }
   .up { color:var(--up); } .down { color:var(--down); }
-  .stats { display:flex; gap:32px; flex-wrap:wrap; margin-top:20px; color:var(--muted); font-size:14px; }
-  .stats b { display:block; color:var(--text); font-size:16px; font-variant-numeric:tabular-nums; }
-  canvas { width:100%; height:260px; margin-top:24px; display:block; }
-  table { width:100%; border-collapse:collapse; margin-top:28px; font-size:14px; font-variant-numeric:tabular-nums; }
-  th { text-align:right; color:var(--muted); font-weight:500; padding:6px 8px; border-bottom:1px solid var(--muted); }
-  td { text-align:right; padding:7px 8px; border-bottom:1px solid rgba(128,128,128,.2); }
+  .num { font-variant-numeric:tabular-nums; }
+
+  .tabs { display:flex; gap:8px; flex-wrap:wrap; }
+  .tab { flex:1; min-width:120px; text-align:left; background:transparent; color:var(--text); border:1px solid var(--line);
+         border-radius:10px; padding:10px 12px; cursor:pointer; font:inherit; }
+  .tab.active { border-color:var(--accent); background:rgba(76,141,255,.1); }
+  .tab small { display:block; color:var(--muted); font-size:12px; }
+  .tab b { font-size:15px; }
+
+  .price { font-size:56px; font-weight:700; line-height:1.1; margin-top:14px; }
+  .change { font-size:20px; margin-top:4px; }
+  .ranges { display:flex; gap:6px; margin-top:16px; }
+  .ranges button { background:transparent; color:var(--muted); border:1px solid var(--line); border-radius:8px; padding:5px 12px; cursor:pointer; font:inherit; font-size:13px; }
+  .ranges button.active { color:var(--text); border-color:var(--accent); background:rgba(76,141,255,.1); }
+  canvas { width:100%; height:280px; margin-top:12px; display:block; }
+  .stats { display:flex; gap:28px; flex-wrap:wrap; margin-top:16px; color:var(--muted); font-size:13px; }
+  .stats b { display:block; color:var(--text); font-size:16px; }
+
+  .alert-row { display:flex; gap:8px; flex-wrap:wrap; }
+  .alert-row select, .alert-row input, .alert-row button { font:inherit; padding:7px 10px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--text); }
+  .alert-row input { width:130px; }
+  .alert-row button { background:var(--accent); border-color:var(--accent); color:#fff; cursor:pointer; }
+  #alerts { margin-top:10px; font-size:14px; }
+  .alert-item { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--line); }
+  .alert-item button { background:none; border:none; color:var(--muted); cursor:pointer; font-size:16px; }
+  .banner { background:var(--accent); color:#fff; padding:10px 14px; border-radius:10px; margin-bottom:12px; display:none; }
+
+  .movers { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .mover { display:flex; justify-content:space-between; padding:5px 0; font-size:14px; }
+
+  .search { width:100%; font:inherit; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--text); margin-bottom:10px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th { text-align:right; color:var(--muted); font-weight:500; padding:6px 6px; border-bottom:1px solid var(--line); cursor:pointer; user-select:none; white-space:nowrap; }
+  td { text-align:right; padding:7px 6px; border-bottom:1px solid var(--line); }
   th:first-child, td:first-child { text-align:left; }
   td small { color:var(--muted); margin-left:6px; }
   .status { margin-top:12px; font-size:12px; color:var(--muted); }
+  .note { font-size:12px; color:var(--muted); margin-top:8px; }
 </style>
 </head>
 <body>
-<div class="wrap"><div class="card">
-  <h1>Dow Jones Industrial Average (^DJI)</h1>
-  <div class="price" id="price">--</div>
-  <div class="change" id="change">&nbsp;</div>
-  <div class="stats">
-    <div>Prev close<b id="prev">--</b></div>
-    <div>Day high<b id="high">--</b></div>
-    <div>Day low<b id="low">--</b></div>
+<div class="layout">
+
+  <!-- LEFT: index points -->
+  <div>
+    <div class="card">
+      <div class="tabs" id="tabs"></div>
+      <div class="price num" id="price">--</div>
+      <div class="change num" id="change">&nbsp;</div>
+      <div class="ranges" id="ranges"></div>
+      <canvas id="chart"></canvas>
+      <div class="stats">
+        <div>Prev close<b class="num" id="prev">--</b></div>
+        <div>Day high<b class="num" id="high">--</b></div>
+        <div>Day low<b class="num" id="low">--</b></div>
+      </div>
+      <div class="status" id="status">Loading…</div>
+    </div>
+
+    <div class="card">
+      <h2>Top movers</h2>
+      <div class="movers">
+        <div><div class="note" style="margin:0 0 4px">Gainers</div><div id="gainers"></div></div>
+        <div><div class="note" style="margin:0 0 4px">Losers</div><div id="losers"></div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Price alert</h2>
+      <div class="banner" id="banner"></div>
+      <div class="alert-row">
+        <select id="alertDir"><option value="above">goes above</option><option value="below">goes below</option></select>
+        <input id="alertVal" type="number" step="any" placeholder="points">
+        <button id="alertAdd">Add alert</button>
+      </div>
+      <div id="alerts"></div>
+      <div class="note">Alerts apply to the selected index and are checked while this page is open.</div>
+    </div>
   </div>
-  <canvas id="chart"></canvas>
-  <table>
-    <thead><tr><th>Company</th><th>Price</th><th>Change</th><th>%</th></tr></thead>
-    <tbody id="stocks"></tbody>
-  </table>
-  <div class="status" id="status">Loading…</div>
-</div></div>
+
+  <!-- RIGHT: companies -->
+  <div class="card">
+    <h2 id="tableTitle">Companies</h2>
+    <input class="search" id="search" placeholder="Search company or ticker">
+    <table>
+      <thead><tr>
+        <th data-k="symbol">Company</th><th data-k="price">Price</th>
+        <th data-k="change">Change</th><th data-k="changePct">%</th>
+      </tr></thead>
+      <tbody id="stocks"></tbody>
+    </table>
+    <div class="note" id="tableNote"></div>
+  </div>
+</div>
+
 <script>
 const $ = id => document.getElementById(id);
 const fmt = n => n == null ? '--' : n.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
-let lastPrice = null;
+const sgn = n => n >= 0 ? '+' : '';
+const NAMES = {DJI:'Dow Jones', GSPC:'S&P 500', IXIC:'Nasdaq'};
+const RANGES = {'1d':'1D','5d':'5D','1mo':'1M','6mo':'6M','1y':'1Y','5y':'5Y'};
+const NOTES = {
+  DJI: 'All 30 Dow components (verify current membership).',
+  GSPC: 'Top 30 companies by weight, not all 500.',
+  IXIC: 'Top 30 companies by weight, not all of the Nasdaq.'
+};
 
-function draw(series, prev) {
+const store = {
+  get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+};
+
+let index = store.get('index', 'DJI'), range = store.get('range', '1d');
+let stocks = [], sortKey = 'symbol', sortDir = 1, lastPrice = null, lastPriceIndex = null;
+let alerts = store.get('alerts', []);
+let lastQuote = null;
+
+/* ---------- tabs & ranges ---------- */
+function renderTabs(overview) {
+  $('tabs').innerHTML = Object.keys(NAMES).map(k => {
+    const o = overview && overview.find(x => x.key === k);
+    const pct = o && o.price != null ? `<small class="num ${o.change >= 0 ? 'up' : 'down'}">${fmt(o.price)} · ${sgn(o.change)}${o.changePct.toFixed(2)}%</small>` : '<small>--</small>';
+    return `<button class="tab ${k === index ? 'active' : ''}" data-i="${k}"><b>${NAMES[k]}</b>${pct}</button>`;
+  }).join('');
+}
+$('tabs').onclick = e => {
+  const b = e.target.closest('.tab'); if (!b) return;
+  index = b.dataset.i; store.set('index', index);
+  lastPrice = null; lastQuote = null; stocks = [];
+  renderTabs(window._overview); renderAlerts(); renderStocks();
+  update(); updateStocks();
+};
+$('ranges').innerHTML = Object.entries(RANGES).map(([k, v]) => `<button data-r="${k}">${v}</button>`).join('');
+function markRange() { [...$('ranges').children].forEach(b => b.classList.toggle('active', b.dataset.r === range)); }
+$('ranges').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  range = b.dataset.r; store.set('range', range); markRange(); update();
+};
+
+/* ---------- chart ---------- */
+function draw(series, base) {
   const c = $('chart'), dpr = window.devicePixelRatio || 1;
   const w = c.clientWidth, h = c.clientHeight;
   c.width = w * dpr; c.height = h * dpr;
   const g = c.getContext('2d'); g.scale(dpr, dpr);
   if (series.length < 2) return;
   const vals = series.map(p => p.c);
-  const min = Math.min(...vals, prev), max = Math.max(...vals, prev);
+  const min = Math.min(...vals, base), max = Math.max(...vals, base);
   const pad = (max - min) * 0.1 || 1;
   const y = v => h - ((v - (min - pad)) / (max - min + 2 * pad)) * h;
   const x = i => (i / (series.length - 1)) * w;
-  const style = getComputedStyle(document.documentElement);
-  const up = vals[vals.length - 1] >= prev;
-  const color = style.getPropertyValue(up ? '--up' : '--down');
-  g.strokeStyle = style.getPropertyValue('--muted'); g.globalAlpha = 0.5;
-  g.setLineDash([4, 4]); g.beginPath(); g.moveTo(0, y(prev)); g.lineTo(w, y(prev)); g.stroke();
+  const cs = getComputedStyle(document.documentElement);
+  const up = vals[vals.length - 1] >= base;
+  const color = cs.getPropertyValue(up ? '--up' : '--down');
+  g.strokeStyle = cs.getPropertyValue('--muted'); g.globalAlpha = 0.5;
+  g.setLineDash([4, 4]); g.beginPath(); g.moveTo(0, y(base)); g.lineTo(w, y(base)); g.stroke();
   g.setLineDash([]); g.globalAlpha = 1;
-  g.strokeStyle = color; g.lineWidth = 2; g.beginPath();
+  g.beginPath();
   vals.forEach((v, i) => i ? g.lineTo(x(i), y(v)) : g.moveTo(x(i), y(v)));
-  g.stroke();
+  g.strokeStyle = color; g.lineWidth = 2; g.stroke();
+  g.lineTo(w, h); g.lineTo(0, h); g.closePath();
+  const grad = g.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, color); grad.addColorStop(1, 'transparent');
+  g.globalAlpha = 0.15; g.fillStyle = grad; g.fill(); g.globalAlpha = 1;
 }
 
+/* ---------- index quote ---------- */
 async function update() {
+  const myIndex = index, myRange = range;
   try {
-    const r = await fetch('/api/quote');
-    const d = await r.json();
+    const d = await (await fetch(`/api/quote?index=${myIndex}&range=${myRange}`)).json();
     if (d.error) throw new Error(d.error);
-    const up = d.change >= 0, sign = up ? '+' : '';
+    if (myIndex !== index || myRange !== range) return;   // user switched while loading
+    lastQuote = d;
+    const useRange = myRange !== '1d' && d.rangeChange != null;
+    const chg = useRange ? d.rangeChange : d.change;
+    const pct = useRange ? d.rangeChangePct : d.changePct;
+    const base = useRange ? d.rangeStart : d.prevClose;
     $('price').textContent = fmt(d.price);
-    $('price').className = 'price ' + (lastPrice == null || d.price === lastPrice ? '' : d.price > lastPrice ? 'up' : 'down');
-    lastPrice = d.price;
-    $('change').textContent = `${sign}${fmt(d.change)} (${sign}${d.changePct.toFixed(2)}%)`;
-    $('change').className = 'change ' + (up ? 'up' : 'down');
+    $('price').className = 'price num ' + (lastPrice == null || lastPriceIndex !== myIndex || d.price === lastPrice ? '' : d.price > lastPrice ? 'up' : 'down');
+    lastPrice = d.price; lastPriceIndex = myIndex;
+    $('change').textContent = `${sgn(chg)}${fmt(chg)} (${sgn(chg)}${pct.toFixed(2)}%)` + (useRange ? ` · ${RANGES[myRange]}` : ' today');
+    $('change').className = 'change num ' + (chg >= 0 ? 'up' : 'down');
     $('prev').textContent = fmt(d.prevClose);
     $('high').textContent = fmt(d.dayHigh);
     $('low').textContent = fmt(d.dayLow);
-    draw(d.series, d.prevClose);
-    $('status').textContent = 'Market time ' + new Date(d.marketTime * 1000).toLocaleTimeString() + ' · refreshes every 1s';
+    draw(d.series, base);
+    $('status').textContent = 'Market time ' + new Date(d.marketTime * 1000).toLocaleTimeString() + ' · price refreshes every 1s';
+    checkAlerts(d.price);
   } catch (e) {
     $('status').textContent = 'Error: ' + e.message;
   }
 }
-async function updateStocks() {
+
+async function updateOverview() {
   try {
-    const list = await (await fetch('/api/stocks')).json();
-    $('stocks').innerHTML = list.map(s => {
-      if (s.price == null) return `<tr><td>${s.symbol}<small>${s.name}</small></td><td colspan="3">--</td></tr>`;
-      const cls = s.change >= 0 ? 'up' : 'down', sign = s.change >= 0 ? '+' : '';
-      return `<tr><td>${s.symbol}<small>${s.name}</small></td><td>${fmt(s.price)}</td>` +
-        `<td class="${cls}">${sign}${fmt(s.change)}</td><td class="${cls}">${sign}${s.changePct.toFixed(2)}%</td></tr>`;
-    }).join('');
-  } catch (e) {}
+    window._overview = await (await fetch('/api/overview')).json();
+    renderTabs(window._overview);
+  } catch {}
 }
-update();
-updateStocks();
+
+/* ---------- companies ---------- */
+function renderStocks() {
+  $('tableTitle').textContent = NAMES[index] + ' companies';
+  $('tableNote').textContent = NOTES[index];
+  const q = $('search').value.trim().toLowerCase();
+  const rows = stocks.filter(s => !q || s.symbol.toLowerCase().includes(q) || s.name.toLowerCase().includes(q));
+  rows.sort((a, b) => {
+    const x = a[sortKey], y = b[sortKey];
+    if (x == null) return 1; if (y == null) return -1;
+    return (typeof x === 'string' ? x.localeCompare(y) : x - y) * sortDir;
+  });
+  $('stocks').innerHTML = rows.map(s => {
+    if (s.price == null) return `<tr><td>${s.symbol}<small>${s.name}</small></td><td colspan="3">--</td></tr>`;
+    const cls = s.change >= 0 ? 'up' : 'down';
+    return `<tr><td>${s.symbol}<small>${s.name}</small></td><td class="num">${fmt(s.price)}</td>` +
+      `<td class="num ${cls}">${sgn(s.change)}${fmt(s.change)}</td><td class="num ${cls}">${sgn(s.change)}${s.changePct.toFixed(2)}%</td></tr>`;
+  }).join('') || '<tr><td colspan="4">No stocks to show yet…</td></tr>';
+
+  const ok = stocks.filter(s => s.price != null).sort((a, b) => b.changePct - a.changePct);
+  const row = s => `<div class="mover"><span>${s.symbol}</span><span class="num ${s.change >= 0 ? 'up' : 'down'}">${sgn(s.change)}${s.changePct.toFixed(2)}%</span></div>`;
+  $('gainers').innerHTML = ok.slice(0, 3).map(row).join('');
+  $('losers').innerHTML = ok.slice(-3).reverse().map(row).join('');
+}
+document.querySelectorAll('th[data-k]').forEach(th => th.onclick = () => {
+  const k = th.dataset.k;
+  if (sortKey === k) sortDir *= -1; else { sortKey = k; sortDir = k === 'symbol' ? 1 : -1; }
+  renderStocks();
+});
+$('search').oninput = renderStocks;
+
+async function updateStocks() {
+  const myIndex = index;
+  try {
+    const list = await (await fetch(`/api/stocks?index=${myIndex}`)).json();
+    if (myIndex !== index || !Array.isArray(list)) return;
+    stocks = list; renderStocks();
+  } catch {}
+}
+
+/* ---------- alerts ---------- */
+function renderAlerts() {
+  const mine = alerts.map((a, i) => ({...a, i})).filter(a => a.index === index);
+  $('alerts').innerHTML = mine.map(a =>
+    `<div class="alert-item"><span>${a.dir === 'above' ? '▲ above' : '▼ below'} <b class="num">${fmt(a.value)}</b></span><button data-del="${a.i}" title="Remove">×</button></div>`
+  ).join('') || '<div class="note">No alerts set.</div>';
+}
+$('alerts').onclick = e => {
+  const b = e.target.closest('[data-del]'); if (!b) return;
+  alerts.splice(+b.dataset.del, 1); store.set('alerts', alerts); renderAlerts();
+};
+$('alertAdd').onclick = () => {
+  const v = parseFloat($('alertVal').value);
+  if (isNaN(v)) return;
+  alerts.push({index, dir: $('alertDir').value, value: v});
+  store.set('alerts', alerts); $('alertVal').value = ''; renderAlerts();
+  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+};
+function beep() {
+  try {
+    const ctx = new AudioContext(), o = ctx.createOscillator();
+    o.connect(ctx.destination); o.frequency.value = 880; o.start(); o.stop(ctx.currentTime + 0.25);
+  } catch {}
+}
+function checkAlerts(price) {
+  const hit = alerts.filter(a => a.index === index && (a.dir === 'above' ? price >= a.value : price <= a.value));
+  if (!hit.length) return;
+  alerts = alerts.filter(a => !hit.includes(a)); store.set('alerts', alerts); renderAlerts();
+  const msg = hit.map(a => `${NAMES[index]} went ${a.dir} ${fmt(a.value)} (now ${fmt(price)})`).join(' · ');
+  $('banner').textContent = '🔔 ' + msg; $('banner').style.display = 'block';
+  beep();
+  try { if (Notification.permission === 'granted') new Notification('Price alert', {body: msg}); } catch {}
+}
+
+/* ---------- start ---------- */
+markRange(); renderTabs(); renderAlerts(); renderStocks();
+update(); updateOverview(); updateStocks();
 setInterval(update, 1000);
+setInterval(updateOverview, 5000);
 setInterval(updateStocks, 5000);
-addEventListener('resize', update);
+addEventListener('resize', () => lastQuote && update());
 </script>
 </body>
 </html>
