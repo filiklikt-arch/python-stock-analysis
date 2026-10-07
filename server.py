@@ -1,5 +1,10 @@
+import html
+import http.cookiejar
 import json
+import re
+import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -25,40 +30,38 @@ RANGES = {
     "5y": ("5y", "1wk", 600),
 }
 
-# Dow 30 is the real membership as of writing. The S&P 500 and Nasdaq lists are
-# the largest ~30 companies by weight, not the full index.
-COMPANIES = {
-    "DJI": {
-        "MMM": "3M", "AXP": "American Express", "AMGN": "Amgen", "AMZN": "Amazon",
-        "AAPL": "Apple", "BA": "Boeing", "CAT": "Caterpillar", "CVX": "Chevron",
-        "CSCO": "Cisco", "KO": "Coca-Cola", "DIS": "Disney", "GS": "Goldman Sachs",
-        "HD": "Home Depot", "HON": "Honeywell", "IBM": "IBM", "JNJ": "Johnson & Johnson",
-        "JPM": "JPMorgan Chase", "MCD": "McDonald's", "MRK": "Merck", "MSFT": "Microsoft",
-        "NKE": "Nike", "NVDA": "Nvidia", "PG": "Procter & Gamble", "CRM": "Salesforce",
-        "SHW": "Sherwin-Williams", "TRV": "Travelers", "UNH": "UnitedHealth",
-        "VZ": "Verizon", "V": "Visa", "WMT": "Walmart",
-    },
-    "GSPC": {
-        "NVDA": "Nvidia", "MSFT": "Microsoft", "AAPL": "Apple", "AMZN": "Amazon",
-        "GOOGL": "Alphabet", "META": "Meta", "AVGO": "Broadcom", "TSLA": "Tesla",
-        "BRK-B": "Berkshire Hathaway", "JPM": "JPMorgan Chase", "LLY": "Eli Lilly",
-        "V": "Visa", "XOM": "Exxon Mobil", "MA": "Mastercard", "NFLX": "Netflix",
-        "WMT": "Walmart", "COST": "Costco", "ORCL": "Oracle", "JNJ": "Johnson & Johnson",
-        "PG": "Procter & Gamble", "HD": "Home Depot", "BAC": "Bank of America",
-        "ABBV": "AbbVie", "KO": "Coca-Cola", "CVX": "Chevron", "CRM": "Salesforce",
-        "AMD": "AMD", "UNH": "UnitedHealth", "CSCO": "Cisco", "MRK": "Merck",
-    },
-    "IXIC": {
-        "NVDA": "Nvidia", "MSFT": "Microsoft", "AAPL": "Apple", "AMZN": "Amazon",
-        "GOOGL": "Alphabet", "META": "Meta", "AVGO": "Broadcom", "TSLA": "Tesla",
-        "NFLX": "Netflix", "COST": "Costco", "PLTR": "Palantir", "AMD": "AMD",
-        "CSCO": "Cisco", "TMUS": "T-Mobile", "ADBE": "Adobe", "PEP": "PepsiCo",
-        "LIN": "Linde", "INTU": "Intuit", "QCOM": "Qualcomm", "AMGN": "Amgen",
-        "TXN": "Texas Instruments", "ISRG": "Intuitive Surgical", "BKNG": "Booking",
-        "AMAT": "Applied Materials", "HON": "Honeywell", "ADP": "ADP",
-        "PANW": "Palo Alto Networks", "MU": "Micron", "GILD": "Gilead", "SBUX": "Starbucks",
-    },
+UA = {"User-Agent": "Mozilla/5.0"}
+WIKI_UA = {"User-Agent": "market-dashboard/1.0 (learning project)"}
+SP500_WIKI = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+QUOTE_URL = "https://query1.finance.yahoo.com/v7/finance/quote?symbols={}&crumb={}"
+CRUMB_URL = "https://query1.finance.yahoo.com/v1/test/getcrumb"
+QUOTE_CHUNK = 200
+
+# Built-in lists. The S&P 500 is fetched live from Wikipedia; this fallback is used
+# only if that fails.
+DOW = {
+    "MMM": "3M", "AXP": "American Express", "AMGN": "Amgen", "AMZN": "Amazon",
+    "AAPL": "Apple", "BA": "Boeing", "CAT": "Caterpillar", "CVX": "Chevron",
+    "CSCO": "Cisco", "KO": "Coca-Cola", "DIS": "Disney", "GS": "Goldman Sachs",
+    "HD": "Home Depot", "HON": "Honeywell", "IBM": "IBM", "JNJ": "Johnson & Johnson",
+    "JPM": "JPMorgan Chase", "MCD": "McDonald's", "MRK": "Merck", "MSFT": "Microsoft",
+    "NKE": "Nike", "NVDA": "Nvidia", "PG": "Procter & Gamble", "CRM": "Salesforce",
+    "SHW": "Sherwin-Williams", "TRV": "Travelers", "UNH": "UnitedHealth",
+    "VZ": "Verizon", "V": "Visa", "WMT": "Walmart",
 }
+SP500_FALLBACK = {
+    s: s for s in "NVDA MSFT AAPL AMZN GOOGL META AVGO TSLA BRK-B JPM LLY V XOM MA NFLX WMT "
+    "COST ORCL JNJ PG HD BAC ABBV KO CVX CRM AMD UNH CSCO MRK".split()
+}
+# Nasdaq-100 (approximate; names come from Yahoo). Symbols Yahoo doesn't recognise are dropped.
+NASDAQ100 = {s: None for s in (
+    "AAPL MSFT NVDA AMZN GOOGL GOOG META AVGO TSLA NFLX COST PLTR ASML AMD CSCO TMUS AZN LIN PEP "
+    "ISRG ADBE QCOM TXN INTU AMGN BKNG HON AMAT PDD ARM GILD CMCSA PANW ADP VRTX MU LRCX ADI KLAC "
+    "APP MELI SBUX CRWD INTC MDLZ CEG CDNS REGN ORLY PYPL MAR SNPS CTAS MRVL ABNB FTNT ADSK DASH "
+    "WDAY ROP NXPI PCAR CPRT MNST CSX AEP TTWO CHTR FAST KDP ROST PAYX DDOG BKR IDXX ODFL EA XEL "
+    "VRSK EXC FANG LULU CCEP TEAM CTSH GEHC KHC ZS ON CDW TTD BIIB MDB GFS WBD CSGP MCHP DXCM "
+    "TRI FER CSX LIN SHOP"
+).split()}
 
 _cache = {}
 
@@ -135,21 +138,93 @@ def fetch_overview():
         return list(pool.map(one, INDICES))
 
 
-def fetch_stock(symbol, name):
+_session = {"opener": None, "crumb": None}
+_session_lock = threading.Lock()
+
+
+def yahoo_session(force=False):
+    with _session_lock:
+        if _session["crumb"] and not force:
+            return _session["opener"], _session["crumb"]
+        opener = urllib.request.build_opener(
+            urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        try:
+            opener.open(urllib.request.Request("https://fc.yahoo.com", headers=UA), timeout=10)
+        except urllib.error.HTTPError:
+            pass  # a 404 is expected; the point is the cookie it sets
+        crumb = opener.open(urllib.request.Request(CRUMB_URL, headers=UA), timeout=10).read().decode()
+        _session.update(opener=opener, crumb=crumb)
+        return opener, crumb
+
+
+def quote_chunk(symbols):
+    for attempt in (0, 1):
+        opener, crumb = yahoo_session(force=attempt == 1)
+        url = QUOTE_URL.format(urllib.parse.quote(",".join(symbols), safe=","),
+                               urllib.parse.quote(crumb, safe=""))
+        try:
+            with opener.open(urllib.request.Request(url, headers=UA), timeout=15) as resp:
+                return json.load(resp)["quoteResponse"]["result"]
+        except urllib.error.HTTPError as e:
+            if attempt == 1 or e.code not in (401, 403):
+                raise
+
+
+def batch_quotes(symbols):
+    chunks = [symbols[i:i + QUOTE_CHUNK] for i in range(0, len(symbols), QUOTE_CHUNK)]
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        results = pool.map(quote_chunk, chunks)
+    return {q["symbol"]: q for chunk in results for q in chunk}
+
+
+def sp500_companies():
+    def produce():
+        req = urllib.request.Request(SP500_WIKI, headers=WIKI_UA)
+        page = urllib.request.urlopen(req, timeout=15).read().decode()
+        table = re.search(r'<table[^>]*id="constituents"[^>]*>(.*?)</table>', page, re.S).group(1)
+        out = {}
+        for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", table, re.S)[1:]:
+            cells = [html.unescape(re.sub(r"<[^>]+>", "", c)).strip()
+                     for c in re.findall(r"<td[^>]*>(.*?)</td>", tr, re.S)]
+            if len(cells) >= 2:
+                out[cells[0].replace(".", "-")] = cells[1]
+        if len(out) < 400:
+            raise ValueError("S&P 500 table looks incomplete")
+        return out
+
     try:
-        meta = yahoo_chart(symbol, "1d", "1d")["meta"]
-        s = summarize(meta)
-        return {"symbol": symbol, "name": name, "price": s["price"],
-                "change": s["change"], "changePct": s["changePct"]}
+        return cached(("sp500-list",), 6 * 3600, produce)
     except Exception:
-        return {"symbol": symbol, "name": name, "price": None,
-                "change": None, "changePct": None}
+        return SP500_FALLBACK
+
+
+def companies_for(index):
+    if index == "DJI":
+        return DOW
+    if index == "GSPC":
+        return sp500_companies()
+    return NASDAQ100
 
 
 def fetch_stocks(index):
     def produce():
-        with ThreadPoolExecutor(max_workers=10) as pool:
-            return list(pool.map(lambda kv: fetch_stock(*kv), COMPANIES[index].items()))
+        companies = companies_for(index)
+        quotes = batch_quotes(list(companies))
+        rows = []
+        for sym, name in companies.items():
+            q = quotes.get(sym)
+            if not q or q.get("regularMarketPrice") is None:
+                continue
+            rows.append({
+                "symbol": sym,
+                "name": name or q.get("shortName") or q.get("longName") or sym,
+                "price": q["regularMarketPrice"],
+                "change": q.get("regularMarketChange") or 0,
+                "changePct": q.get("regularMarketChangePercent") or 0,
+            })
+        if not rows:
+            raise ValueError("no quotes returned")
+        return rows
 
     return cached(("stocks", index), 5, produce)
 

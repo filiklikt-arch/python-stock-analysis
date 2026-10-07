@@ -6,10 +6,15 @@
 <title>Market Live</title>
 <style>
   :root { --bg:#0e1116; --card:#171b22; --text:#e8eaed; --muted:#8b949e; --line:rgba(128,128,128,.25);
-          --up:#2ecc71; --down:#ff5c5c; --accent:#4c8dff; }
+          --up:#2ecc71; --down:#ff5c5c; --accent:#4c8dff; color-scheme:dark; }
   @media (prefers-color-scheme: light) {
-    :root { --bg:#f4f5f7; --card:#fff; --text:#16191d; --muted:#667085; --up:#0a9d4a; --down:#d92d2d; --accent:#2563eb; }
+    :root:not([data-theme="dark"]) { --bg:#f4f5f7; --card:#fff; --text:#16191d; --muted:#667085; --up:#0a9d4a; --down:#d92d2d; --accent:#2563eb; color-scheme:light; }
   }
+  :root[data-theme="light"] { --bg:#f4f5f7; --card:#fff; --text:#16191d; --muted:#667085; --up:#0a9d4a; --down:#d92d2d; --accent:#2563eb; color-scheme:light; }
+  :root[data-theme="dark"] { --bg:#0e1116; --card:#171b22; --text:#e8eaed; --muted:#8b949e; --up:#2ecc71; --down:#ff5c5c; --accent:#4c8dff; color-scheme:dark; }
+  .topbar { max-width:1240px; margin:0 auto 12px; display:flex; justify-content:space-between; align-items:center; }
+  .topbar b { font-size:16px; }
+  #theme { font:inherit; font-size:13px; padding:6px 12px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--text); cursor:pointer; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font-family:system-ui,sans-serif; padding:20px 16px; }
   .layout { max-width:1240px; margin:0 auto; display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); gap:16px; align-items:start; }
@@ -49,8 +54,9 @@
   .mover { display:flex; justify-content:space-between; padding:5px 0; font-size:14px; }
 
   .search { width:100%; font:inherit; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--text); margin-bottom:10px; }
+  .tablewrap { max-height:calc(100vh - 220px); min-height:320px; overflow:auto; }
   table { width:100%; border-collapse:collapse; font-size:14px; }
-  th { text-align:right; color:var(--muted); font-weight:500; padding:6px 6px; border-bottom:1px solid var(--line); cursor:pointer; user-select:none; white-space:nowrap; }
+  th { position:sticky; top:0; background:var(--card); text-align:right; color:var(--muted); font-weight:500; padding:6px 6px; border-bottom:1px solid var(--line); cursor:pointer; user-select:none; white-space:nowrap; }
   td { text-align:right; padding:7px 6px; border-bottom:1px solid var(--line); }
   th:first-child, td:first-child { text-align:left; }
   td small { color:var(--muted); margin-left:6px; }
@@ -59,6 +65,7 @@
 </style>
 </head>
 <body>
+<div class="topbar"><b>Market Live</b><button id="theme" title="Switch light/dark">Theme</button></div>
 <div class="layout">
 
   <!-- LEFT: index points -->
@@ -102,13 +109,13 @@
   <div class="card">
     <h2 id="tableTitle">Companies</h2>
     <input class="search" id="search" placeholder="Search company or ticker">
-    <table>
+    <div class="tablewrap"><table>
       <thead><tr>
         <th data-k="symbol">Company</th><th data-k="price">Price</th>
         <th data-k="change">Change</th><th data-k="changePct">%</th>
       </tr></thead>
       <tbody id="stocks"></tbody>
-    </table>
+    </table></div>
     <div class="note" id="tableNote"></div>
   </div>
 </div>
@@ -120,9 +127,9 @@ const sgn = n => n >= 0 ? '+' : '';
 const NAMES = {DJI:'Dow Jones', GSPC:'S&P 500', IXIC:'Nasdaq'};
 const RANGES = {'1d':'1D','5d':'5D','1mo':'1M','6mo':'6M','1y':'1Y','5y':'5Y'};
 const NOTES = {
-  DJI: 'All 30 Dow components (verify current membership).',
-  GSPC: 'Top 30 companies by weight, not all 500.',
-  IXIC: 'Top 30 companies by weight, not all of the Nasdaq.'
+  DJI: n => `All ${n} Dow components (built-in list; verify current membership).`,
+  GSPC: n => `${n} S&P 500 companies (list from Wikipedia).`,
+  IXIC: n => `${n} Nasdaq-100 companies (built-in list, approximate). The full Nasdaq Composite has ~3,000 stocks and isn't included.`
 };
 
 const store = {
@@ -133,7 +140,7 @@ const store = {
 let index = store.get('index', 'DJI'), range = store.get('range', '1d');
 let stocks = [], sortKey = 'symbol', sortDir = 1, lastPrice = null, lastPriceIndex = null;
 let alerts = store.get('alerts', []);
-let lastQuote = null;
+let lastQuote = null, drawBase = 0;
 
 /* ---------- tabs & ranges ---------- */
 function renderTabs(overview) {
@@ -204,7 +211,7 @@ async function update() {
     $('prev').textContent = fmt(d.prevClose);
     $('high').textContent = fmt(d.dayHigh);
     $('low').textContent = fmt(d.dayLow);
-    draw(d.series, base);
+    drawBase = base; draw(d.series, base);
     $('status').textContent = 'Market time ' + new Date(d.marketTime * 1000).toLocaleTimeString() + ' · price refreshes every 1s';
     checkAlerts(d.price);
   } catch (e) {
@@ -222,7 +229,7 @@ async function updateOverview() {
 /* ---------- companies ---------- */
 function renderStocks() {
   $('tableTitle').textContent = NAMES[index] + ' companies';
-  $('tableNote').textContent = NOTES[index];
+  $('tableNote').textContent = stocks.length ? NOTES[index](stocks.length) : '';
   const q = $('search').value.trim().toLowerCase();
   const rows = stocks.filter(s => !q || s.symbol.toLowerCase().includes(q) || s.name.toLowerCase().includes(q));
   rows.sort((a, b) => {
@@ -291,6 +298,22 @@ function checkAlerts(price) {
   beep();
   try { if (Notification.permission === 'granted') new Notification('Price alert', {body: msg}); } catch {}
 }
+
+/* ---------- theme ---------- */
+function applyTheme(t) {
+  if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
+}
+function currentTheme() {
+  return document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+}
+applyTheme(store.get('theme', null));
+$('theme').onclick = () => {
+  const next = currentTheme() === 'dark' ? 'light' : 'dark';
+  applyTheme(next); store.set('theme', next);
+  $('theme').textContent = next === 'dark' ? '☀ Light' : '🌙 Dark';
+  if (lastQuote) draw(lastQuote.series, drawBase);
+};
+$('theme').textContent = currentTheme() === 'dark' ? '☀ Light' : '🌙 Dark';
 
 /* ---------- start ---------- */
 markRange(); renderTabs(); renderAlerts(); renderStocks();
