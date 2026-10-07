@@ -20,6 +20,11 @@
   .stats { display:flex; gap:32px; flex-wrap:wrap; margin-top:20px; color:var(--muted); font-size:14px; }
   .stats b { display:block; color:var(--text); font-size:16px; font-variant-numeric:tabular-nums; }
   canvas { width:100%; height:260px; margin-top:24px; display:block; }
+  table { width:100%; border-collapse:collapse; margin-top:28px; font-size:14px; font-variant-numeric:tabular-nums; }
+  th { text-align:right; color:var(--muted); font-weight:500; padding:6px 8px; border-bottom:1px solid var(--muted); }
+  td { text-align:right; padding:7px 8px; border-bottom:1px solid rgba(128,128,128,.2); }
+  th:first-child, td:first-child { text-align:left; }
+  td small { color:var(--muted); margin-left:6px; }
   .status { margin-top:12px; font-size:12px; color:var(--muted); }
 </style>
 </head>
@@ -34,6 +39,10 @@
     <div>Day low<b id="low">--</b></div>
   </div>
   <canvas id="chart"></canvas>
+  <table>
+    <thead><tr><th>Company</th><th>Price</th><th>Change</th><th>%</th></tr></thead>
+    <tbody id="stocks"></tbody>
+  </table>
   <div class="status" id="status">Loading…</div>
 </div></div>
 <script>
@@ -83,8 +92,21 @@ async function update() {
     $('status').textContent = 'Error: ' + e.message;
   }
 }
+async function updateStocks() {
+  try {
+    const list = await (await fetch('/api/stocks')).json();
+    $('stocks').innerHTML = list.map(s => {
+      if (s.price == null) return `<tr><td>${s.symbol}<small>${s.name}</small></td><td colspan="3">--</td></tr>`;
+      const cls = s.change >= 0 ? 'up' : 'down', sign = s.change >= 0 ? '+' : '';
+      return `<tr><td>${s.symbol}<small>${s.name}</small></td><td>${fmt(s.price)}</td>` +
+        `<td class="${cls}">${sign}${fmt(s.change)}</td><td class="${cls}">${sign}${s.changePct.toFixed(2)}%</td></tr>`;
+    }).join('');
+  } catch (e) {}
+}
 update();
+updateStocks();
 setInterval(update, 1000);
+setInterval(updateStocks, 5000);
 addEventListener('resize', update);
 </script>
 </body>
